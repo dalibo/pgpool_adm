@@ -29,9 +29,11 @@ PG_MODULE_MAGIC;
 
 Datum _pcp_node_info(PG_FUNCTION_ARGS);
 Datum _pcp_pool_status(PG_FUNCTION_ARGS);
+Datum _pcp_node_count(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(_pcp_node_info);
 PG_FUNCTION_INFO_V1(_pcp_pool_status);
+PG_FUNCTION_INFO_V1(_pcp_node_count);
 
 /**
  * nodeID: the node id to get info from
@@ -393,4 +395,115 @@ _pcp_pool_status(PG_FUNCTION_ARGS)
 	}
 
 	free(status);
+}
+
+/**
+ * nodeID: the node id to get info from
+ * host_or_srv: server name or ip address of the pgpool server
+ * timeout: timeout
+ * port: pcp port number
+ * user: user to connect with
+ * pass: password
+ **/
+Datum
+_pcp_node_count(PG_FUNCTION_ARGS)
+{
+	char * host_or_srv = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	int16 timeout = -1;
+	int16 port = -1;
+	char * user = NULL;
+	char * pass = NULL;
+
+	int16 node_count = 0;
+
+	if (PG_NARGS() == 5)
+	{
+		timeout = PG_GETARG_INT16(1);
+		port = PG_GETARG_INT16(2);
+		user = text_to_cstring(PG_GETARG_TEXT_PP(3));
+		pass = text_to_cstring(PG_GETARG_TEXT_PP(4));
+	}
+	else if (PG_NARGS() == 1)
+	{
+		Oid userid = GetUserId();
+
+		/* raise an error if given foreign server doesn't exists */
+		ForeignServer * foreign_server = GetForeignServerByName(host_or_srv, false);
+		UserMapping * user_mapping;
+		ListCell * cell;
+
+		/* raise an error if the current user isn't mapped with the given foreign server */
+		user_mapping = GetUserMapping(userid, foreign_server->serverid);
+
+		foreach(cell, foreign_server->options)
+		{
+			DefElem * def = lfirst(cell);
+
+			if (strcmp(def->defname, "host") == 0)
+			{
+				host_or_srv = pstrdup(strVal(def->arg));
+			}
+			else if (strcmp(def->defname, "port") == 0)
+			{
+				port = atoi(strVal(def->arg));
+			}
+			else if (strcmp(def->defname, "timeout") == 0)
+			{
+				timeout = atoi(strVal(def->arg));
+			}
+		}
+
+		foreach(cell, user_mapping->options)
+		{
+			DefElem * def = lfirst(cell);
+
+			if (strcmp(def->defname, "user") == 0)
+			{
+				user = pstrdup(strVal(def->arg));
+			}
+			else if (strcmp(def->defname, "password") == 0)
+			{
+				pass = pstrdup(strVal(def->arg));
+			}
+		}
+	}
+	else
+	{
+		ereport(ERROR, (0, errmsg("Wrong number of argument.")));
+	}
+
+	/**
+	 * basic checks for validity of parameters
+	 **/
+	if (timeout < 0)
+		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
+
+	if (port < 0 || port > 65535)
+		ereport(ERROR, (0, errmsg("PCP port out of range.")));
+
+	if (! user)
+		ereport(ERROR, (0, errmsg("No user given.")));
+
+	if (! pass)
+		ereport(ERROR, (0, errmsg("No password given.")));
+
+	/**
+	 * PCP session
+	 **/
+	pcp_set_timeout(timeout);
+
+	if (pcp_connect(host_or_srv, port, user, pass))
+	{
+		ereport(ERROR,(0, errmsg("Cannot connect to PCP server.")));
+	}
+
+	if ((node_count = pcp_node_count()) == -1)
+	{
+		pcp_disconnect();
+		ereport(ERROR,(0, errmsg("Cannot get node count.")));
+	}
+
+	pcp_disconnect();
+
+	PG_RETURN_INT16(node_count);
 }
