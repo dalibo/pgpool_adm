@@ -52,7 +52,6 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 	int16 port = -1;
 	char * user = NULL;
 	char * pass = NULL;
-	Oid userid = GetUserId();
 
 	BackendInfo * backend_info = NULL;
 	Datum values[4]; /* values to build the returned tuple from */
@@ -69,6 +68,7 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 	}
 	else if (PG_NARGS() == 2)
 	{
+		Oid userid = GetUserId();
 
 		/* raise an error if given foreign server doesn't exists */
 		ForeignServer * foreign_server = GetForeignServerByName(host_or_srv, false);
@@ -207,7 +207,6 @@ _pcp_pool_status(PG_FUNCTION_ARGS)
 {
 	MemoryContext oldcontext;
 	FuncCallContext *funcctx;
-	Oid userid = GetUserId();
 	POOL_REPORT_CONFIG *status;
 	int32 nrows;
 	int32 call_cntr;
@@ -239,9 +238,9 @@ _pcp_pool_status(PG_FUNCTION_ARGS)
 		}
 		else if (PG_NARGS() == 1)
 		{
-
 			/* raise an error if given foreign server doesn't exists */
 			ForeignServer * foreign_server = GetForeignServerByName(host_or_srv, false);
+			Oid userid = GetUserId();
 			UserMapping * user_mapping;
 			ListCell * cell;
 
