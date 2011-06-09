@@ -26,6 +26,42 @@
 #include "pgpool_adm.h"
 
 /**
+ * Init a pcp_conninfo struct with empty values
+ * pcp_conninfo: pcpConninfo structure to intialize
+ */
+void
+init_pcp_conninfo(pcpConninfo * pcp_conninfo)
+{
+	pcp_conninfo->host = NULL;
+	pcp_conninfo->timeout = -1;
+	pcp_conninfo->port = -1;
+	pcp_conninfo->user = NULL;
+	pcp_conninfo->pass = NULL;
+}
+
+/**
+ * Checks the give pcp_conninfo has valid properties
+ * pcp_conninfo: pcpConninfo structure to check
+ *
+ * exit the function call on error !
+ */
+void
+check_pcp_conninfo_props(pcpConninfo * pcp_conninfo)
+{
+	if (pcp_conninfo->timeout < 0)
+		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
+
+	if (pcp_conninfo->port < 0 || pcp_conninfo->port > 65535)
+		ereport(ERROR, (0, errmsg("PCP port out of range.")));
+
+	if (! pcp_conninfo->user)
+		ereport(ERROR, (0, errmsg("No user given.")));
+
+	if (! pcp_conninfo->pass)
+		ereport(ERROR, (0, errmsg("No password given.")));
+}
+
+/**
  * Wrapper around pcp_connect
  * pcp_conninfo: pcpConninfo structure having pcp connection properties
  */
@@ -42,6 +78,10 @@ pcp_connect_conninfo(pcpConninfo * pcp_conninfo)
 	return 0;
 }
 
+/**
+ * Returns a pcpConninfo structure filled from a foreign server
+ * name: the name of the foreign server
+ */
 pcpConninfo
 get_pcp_conninfo_from_foreign_server(char * name)
 {
@@ -52,11 +92,7 @@ get_pcp_conninfo_from_foreign_server(char * name)
 	UserMapping * user_mapping;
 	ListCell * cell;
 	
-	pcp_conninfo.host = NULL;
-	pcp_conninfo.timeout = -1;
-	pcp_conninfo.port = -1;
-	pcp_conninfo.user = NULL;
-	pcp_conninfo.pass = NULL;
+	init_pcp_conninfo(&pcp_conninfo);
 
 	/* raise an error if the current user isn't mapped with the given foreign server */
 	user_mapping = GetUserMapping(userid, foreign_server->serverid);
@@ -120,11 +156,7 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 	if (nodeID < 0 || nodeID >= MAX_NUM_BACKENDS)
 		ereport(ERROR, (0, errmsg("NodeID is out of range.")));
 
-	pcp_conninfo.host = NULL;
-	pcp_conninfo.timeout = -1;
-	pcp_conninfo.port = -1;
-	pcp_conninfo.user = NULL;
-	pcp_conninfo.pass = NULL;
+	init_pcp_conninfo(&pcp_conninfo);
 
 	if (PG_NARGS() == 6)
 	{
@@ -143,21 +175,7 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 		ereport(ERROR, (0, errmsg("Wrong number of argument.")));
 	}
 
-	/**
-	 * basic checks for validity of parameters
-	 **/
-
-	if (pcp_conninfo.timeout < 0)
-		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
-
-	if (pcp_conninfo.port < 0 || pcp_conninfo.port > 65535)
-		ereport(ERROR, (0, errmsg("PCP port out of range.")));
-
-	if (! pcp_conninfo.user)
-		ereport(ERROR, (0, errmsg("No user given.")));
-
-	if (! pcp_conninfo.pass)
-		ereport(ERROR, (0, errmsg("No password given.")));
+	check_pcp_conninfo_props(&pcp_conninfo);
 
 	/**
 	 * Construct a tuple descriptor for the result rows.
@@ -243,11 +261,7 @@ _pcp_pool_status(PG_FUNCTION_ARGS)
 		char * host_or_srv = text_to_cstring(PG_GETARG_TEXT_PP(0));
 		pcpConninfo pcp_conninfo;
 
-		pcp_conninfo.host = NULL;
-		pcp_conninfo.timeout = -1;
-		pcp_conninfo.port = -1;
-		pcp_conninfo.user = NULL;
-		pcp_conninfo.pass = NULL;
+		init_pcp_conninfo(&pcp_conninfo);
 
 		/* create a function context for cross-call persistence */
 		funcctx = SRF_FIRSTCALL_INIT();
@@ -273,29 +287,7 @@ _pcp_pool_status(PG_FUNCTION_ARGS)
 			ereport(ERROR, (0, errmsg("Wrong number of argument.")));
 		}
 
-		/**
-		 * basic checks for validity of parameters
-		 **/
-
-		if (pcp_conninfo.timeout < 0) {
-			MemoryContextSwitchTo(oldcontext);
-			ereport(ERROR, (0, errmsg("Timeout is out of range.")));
-		}
-
-		if (pcp_conninfo.port < 0 || pcp_conninfo.port > 65535) {
-			MemoryContextSwitchTo(oldcontext);
-			ereport(ERROR, (0, errmsg("PCP port out of range.")));
-		}
-
-		if (! pcp_conninfo.user) {
-			MemoryContextSwitchTo(oldcontext);
-			ereport(ERROR, (0, errmsg("No user given.")));
-		}
-
-		if (! pcp_conninfo.pass) {
-			MemoryContextSwitchTo(oldcontext);
-			ereport(ERROR, (0, errmsg("No password given.")));
-		}
+		check_pcp_conninfo_props(&pcp_conninfo);
 
 		/* get configuration and status */
 		/**
@@ -397,11 +389,7 @@ _pcp_node_count(PG_FUNCTION_ARGS)
 	pcpConninfo pcp_conninfo;
 	int16 node_count = 0;
 
-	pcp_conninfo.host = NULL;
-	pcp_conninfo.timeout = -1;
-	pcp_conninfo.port = -1;
-	pcp_conninfo.user = NULL;
-	pcp_conninfo.pass = NULL;
+	init_pcp_conninfo(&pcp_conninfo);
 
 	if (PG_NARGS() == 5)
 	{
@@ -420,20 +408,7 @@ _pcp_node_count(PG_FUNCTION_ARGS)
 		ereport(ERROR, (0, errmsg("Wrong number of argument.")));
 	}
 
-	/**
-	 * basic checks for validity of parameters
-	 **/
-	if (pcp_conninfo.timeout < 0)
-		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
-
-	if (pcp_conninfo.port < 0 || pcp_conninfo.port > 65535)
-		ereport(ERROR, (0, errmsg("PCP port out of range.")));
-
-	if (! pcp_conninfo.user)
-		ereport(ERROR, (0, errmsg("No user given.")));
-
-	if (! pcp_conninfo.pass)
-		ereport(ERROR, (0, errmsg("No password given.")));
+	check_pcp_conninfo_props(&pcp_conninfo);
 
 	/**
 	 * PCP session
@@ -473,11 +448,7 @@ _pcp_attach_node(PG_FUNCTION_ARGS)
 	if (nodeID < 0 || nodeID >= MAX_NUM_BACKENDS)
 		ereport(ERROR, (0, errmsg("NodeID is out of range.")));
 
-	pcp_conninfo.host = NULL;
-	pcp_conninfo.timeout = -1;
-	pcp_conninfo.port = -1;
-	pcp_conninfo.user = NULL;
-	pcp_conninfo.pass = NULL;
+	init_pcp_conninfo(&pcp_conninfo);
 
 	if (PG_NARGS() == 6)
 	{
@@ -496,21 +467,7 @@ _pcp_attach_node(PG_FUNCTION_ARGS)
 		ereport(ERROR, (0, errmsg("Wrong number of argument.")));
 	}
 
-	/**
-	 * basic checks for validity of parameters
-	 **/
-
-	if (pcp_conninfo.timeout < 0)
-		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
-
-	if (pcp_conninfo.port < 0 || pcp_conninfo.port > 65535)
-		ereport(ERROR, (0, errmsg("PCP port out of range.")));
-
-	if (! pcp_conninfo.user)
-		ereport(ERROR, (0, errmsg("No user given.")));
-
-	if (! pcp_conninfo.pass)
-		ereport(ERROR, (0, errmsg("No password given.")));
+	check_pcp_conninfo_props(&pcp_conninfo);
 
 	/**
 	 * PCP session

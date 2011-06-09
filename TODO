@@ -1,5 +1,3 @@
-* Factorize code that check connection parameters
-* pcp_attach_node
 * pcp_detach_node
 * pcp_proc_count
 * pcp_proc_info

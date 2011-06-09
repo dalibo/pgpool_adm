@@ -26,6 +26,8 @@ typedef struct {
 	char * pass;
 } pcpConninfo;
 
+void init_pcp_conninfo(pcpConninfo * pcp_conninfo);
+void check_pcp_conninfo_props(pcpConninfo * pcp_conninfo);
 int pcp_connect_conninfo(pcpConninfo * pcp_conninfo);
 pcpConninfo get_pcp_conninfo_from_foreign_server(char * name);
 
