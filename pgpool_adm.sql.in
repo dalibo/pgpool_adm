@@ -51,3 +51,19 @@ CREATE FUNCTION pcp_node_count(text, OUT node_count integer)
 RETURNS record
 AS 'MODULE_PATHNAME', '_pcp_node_count'
 LANGUAGE C VOLATILE STRICT;
+
+/**
+ * input parameters: node_id, host, timeout, port, username, password
+ */
+CREATE FUNCTION pcp_attach_node(integer, text, integer, integer, text, text, OUT node_attached boolean)
+RETURNS boolean
+AS 'MODULE_PATHNAME', '_pcp_attach_node'
+LANGUAGE C VOLATILE STRICT;
+
+/**
+ * input parameters: node_id, server_name
+ */
+CREATE FUNCTION pcp_attach_node(integer, text, OUT node_attached boolean)
+RETURNS boolean
+AS 'MODULE_PATHNAME', '_pcp_attach_node'
+LANGUAGE C VOLATILE STRICT;

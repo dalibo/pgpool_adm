@@ -117,6 +117,9 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 	TupleDesc tupledesc;
 	HeapTuple tuple;
 
+	if (nodeID < 0 || nodeID >= MAX_NUM_BACKENDS)
+		ereport(ERROR, (0, errmsg("NodeID is out of range.")));
+
 	pcp_conninfo.host = NULL;
 	pcp_conninfo.timeout = -1;
 	pcp_conninfo.port = -1;
@@ -143,9 +146,6 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 	/**
 	 * basic checks for validity of parameters
 	 **/
-
-	if (nodeID < 0 || nodeID >= MAX_NUM_BACKENDS)
-		ereport(ERROR, (0, errmsg("NodeID is out of range.")));
 
 	if (pcp_conninfo.timeout < 0)
 		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
@@ -452,4 +452,82 @@ _pcp_node_count(PG_FUNCTION_ARGS)
 	pcp_disconnect();
 
 	PG_RETURN_INT16(node_count);
+}
+
+/**
+ * nodeID: the node id to get info from
+ * host_or_srv: server name or ip address of the pgpool server
+ * timeout: timeout
+ * port: pcp port number
+ * user: user to connect with
+ * pass: password
+ **/
+Datum
+_pcp_attach_node(PG_FUNCTION_ARGS)
+{
+	int16  nodeID = PG_GETARG_INT16(0);
+	char * host_or_srv = text_to_cstring(PG_GETARG_TEXT_PP(1));
+	pcpConninfo pcp_conninfo;
+	int status;
+
+	if (nodeID < 0 || nodeID >= MAX_NUM_BACKENDS)
+		ereport(ERROR, (0, errmsg("NodeID is out of range.")));
+
+	pcp_conninfo.host = NULL;
+	pcp_conninfo.timeout = -1;
+	pcp_conninfo.port = -1;
+	pcp_conninfo.user = NULL;
+	pcp_conninfo.pass = NULL;
+
+	if (PG_NARGS() == 6)
+	{
+		pcp_conninfo.host = host_or_srv;
+		pcp_conninfo.timeout = PG_GETARG_INT16(2);
+		pcp_conninfo.port = PG_GETARG_INT16(3);
+		pcp_conninfo.user = text_to_cstring(PG_GETARG_TEXT_PP(4));
+		pcp_conninfo.pass = text_to_cstring(PG_GETARG_TEXT_PP(5));
+	}
+	else if (PG_NARGS() == 2)
+	{
+		pcp_conninfo = get_pcp_conninfo_from_foreign_server(host_or_srv);
+	}
+	else
+	{
+		ereport(ERROR, (0, errmsg("Wrong number of argument.")));
+	}
+
+	/**
+	 * basic checks for validity of parameters
+	 **/
+
+	if (pcp_conninfo.timeout < 0)
+		ereport(ERROR, (0, errmsg("Timeout is out of range.")));
+
+	if (pcp_conninfo.port < 0 || pcp_conninfo.port > 65535)
+		ereport(ERROR, (0, errmsg("PCP port out of range.")));
+
+	if (! pcp_conninfo.user)
+		ereport(ERROR, (0, errmsg("No user given.")));
+
+	if (! pcp_conninfo.pass)
+		ereport(ERROR, (0, errmsg("No password given.")));
+
+	/**
+	 * PCP session
+	 **/
+	if (pcp_connect_conninfo(&pcp_conninfo))
+	{
+		ereport(ERROR,(0, errmsg("Cannot connect to PCP server.")));
+	}
+
+	status = pcp_attach_node(nodeID);
+
+	pcp_disconnect();
+
+	if (status == -1)
+	{
+		PG_RETURN_BOOL(false);
+	}
+
+	PG_RETURN_BOOL(true);
 }

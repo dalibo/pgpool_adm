@@ -32,9 +32,11 @@ pcpConninfo get_pcp_conninfo_from_foreign_server(char * name);
 Datum _pcp_node_info(PG_FUNCTION_ARGS);
 Datum _pcp_pool_status(PG_FUNCTION_ARGS);
 Datum _pcp_node_count(PG_FUNCTION_ARGS);
+Datum _pcp_attach_node(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(_pcp_node_info);
 PG_FUNCTION_INFO_V1(_pcp_pool_status);
 PG_FUNCTION_INFO_V1(_pcp_node_count);
+PG_FUNCTION_INFO_V1(_pcp_attach_node);
 
 #endif
