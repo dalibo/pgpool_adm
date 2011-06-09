@@ -1,4 +1,3 @@
-* Factorize code that fetch pgpool server information from a foreign server in pgsql catalog
 * Factorize code that check connection parameters
 * pcp_attach_node
 * pcp_detach_node
