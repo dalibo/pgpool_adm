@@ -67,3 +67,19 @@ CREATE FUNCTION pcp_attach_node(integer, text, OUT node_attached boolean)
 RETURNS boolean
 AS 'MODULE_PATHNAME', '_pcp_attach_node'
 LANGUAGE C VOLATILE STRICT;
+
+/**
+ * input parameters: node_id, gracefully, host, timeout, port, username, password
+ */
+CREATE FUNCTION pcp_detach_node(integer, boolean, text, integer, integer, text, text, OUT node_detached boolean)
+RETURNS boolean
+AS 'MODULE_PATHNAME', '_pcp_detach_node'
+LANGUAGE C VOLATILE STRICT;
+
+/**
+ * input parameters: node_id, gracefully, server_name
+ */
+CREATE FUNCTION pcp_detach_node(integer, boolean, text, OUT node_detached boolean)
+RETURNS boolean
+AS 'MODULE_PATHNAME', '_pcp_detach_node'
+LANGUAGE C VOLATILE STRICT;

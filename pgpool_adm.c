@@ -488,3 +488,72 @@ _pcp_attach_node(PG_FUNCTION_ARGS)
 
 	PG_RETURN_BOOL(true);
 }
+
+/**
+ * nodeID: the node id to get info from
+ * gracefully: detach node gracefully if true
+ * host_or_srv: server name or ip address of the pgpool server
+ * timeout: timeout
+ * port: pcp port number
+ * user: user to connect with
+ * pass: password
+ **/
+Datum
+_pcp_detach_node(PG_FUNCTION_ARGS)
+{
+	int16 nodeID = PG_GETARG_INT16(0);
+	bool gracefully = PG_GETARG_BOOL(1);
+	char * host_or_srv = text_to_cstring(PG_GETARG_TEXT_PP(2));
+	pcpConninfo pcp_conninfo;
+	int status;
+
+	if (nodeID < 0 || nodeID >= MAX_NUM_BACKENDS)
+		ereport(ERROR, (0, errmsg("NodeID is out of range.")));
+
+	init_pcp_conninfo(&pcp_conninfo);
+
+	if (PG_NARGS() == 7)
+	{
+		pcp_conninfo.host = host_or_srv;
+		pcp_conninfo.timeout = PG_GETARG_INT16(3);
+		pcp_conninfo.port = PG_GETARG_INT16(4);
+		pcp_conninfo.user = text_to_cstring(PG_GETARG_TEXT_PP(5));
+		pcp_conninfo.pass = text_to_cstring(PG_GETARG_TEXT_PP(6));
+	}
+	else if (PG_NARGS() == 3)
+	{
+		pcp_conninfo = get_pcp_conninfo_from_foreign_server(host_or_srv);
+	}
+	else
+	{
+		ereport(ERROR, (0, errmsg("Wrong number of argument.")));
+	}
+
+	check_pcp_conninfo_props(&pcp_conninfo);
+
+	/**
+	 * PCP session
+	 **/
+	if (pcp_connect_conninfo(&pcp_conninfo))
+	{
+		ereport(ERROR,(0, errmsg("Cannot connect to PCP server.")));
+	}
+
+	if (gracefully)
+	{
+		status = pcp_detach_node_gracefully(nodeID);
+	}
+	else
+	{
+		status = pcp_detach_node(nodeID);
+	}
+
+	pcp_disconnect();
+
+	if (status == -1)
+	{
+		PG_RETURN_BOOL(false);
+	}
+
+	PG_RETURN_BOOL(true);
+}
