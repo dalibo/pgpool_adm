@@ -19,6 +19,7 @@
 #include "nodes/pg_list.h"
 
 #include <unistd.h>
+#include <time.h>
 
 #include "catalog/pg_type.h"
 #include "funcapi.h"
@@ -234,6 +235,183 @@ _pcp_node_info(PG_FUNCTION_ARGS)
 	ReleaseTupleDesc(tupledesc);
 
 	PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+}
+
+/**
+ * host_or_srv: server name or ip address of the pgpool server
+ * timeout: timeout
+ * port: pcp port number
+ * user: user to connect with
+ * pass: password
+ **/
+Datum
+_pcp_proc_info(PG_FUNCTION_ARGS)
+{
+	MemoryContext oldcontext;
+	FuncCallContext *funcctx;
+	ProcessInfo * process_infos;
+	int32 nrows;
+	int32 call_cntr;
+	int32 max_calls;
+	AttInMetadata *attinmeta;
+
+	/* stuff done only on the first call of the function */
+	if (SRF_IS_FIRSTCALL())
+	{
+		TupleDesc tupdesc;
+		char * host_or_srv = text_to_cstring(PG_GETARG_TEXT_PP(0));
+		pcpConninfo pcp_conninfo;
+
+		init_pcp_conninfo(&pcp_conninfo);
+
+		/* create a function context for cross-call persistence */
+		funcctx = SRF_FIRSTCALL_INIT();
+
+		/* switch to memory context appropriate for multiple function calls */
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		if (PG_NARGS() == 5)
+		{
+			pcp_conninfo.host = host_or_srv;
+			pcp_conninfo.timeout = PG_GETARG_INT16(1);
+			pcp_conninfo.port = PG_GETARG_INT16(2);
+			pcp_conninfo.user = text_to_cstring(PG_GETARG_TEXT_PP(3));
+			pcp_conninfo.pass = text_to_cstring(PG_GETARG_TEXT_PP(4));
+		}
+		else if (PG_NARGS() == 1)
+		{
+			pcp_conninfo = get_pcp_conninfo_from_foreign_server(host_or_srv);
+		}
+		else
+		{
+			MemoryContextSwitchTo(oldcontext);
+			ereport(ERROR, (0, errmsg("Wrong number of argument.")));
+		}
+
+		check_pcp_conninfo_props(&pcp_conninfo);
+
+		/* get configuration and status */
+		/**
+		 * PCP session
+		 **/
+		if (pcp_connect_conninfo(&pcp_conninfo))
+		{
+			ereport(ERROR,(0, errmsg("Cannot connect to PCP server.")));
+		}
+
+		if ((process_infos = pcp_process_info(0, &nrows)) == NULL)
+		{
+			pcp_disconnect();
+			ereport(ERROR,(0, errmsg("Cannot pool status information.")));
+		}
+
+		pcp_disconnect();
+
+		/* Construct a tuple descriptor for the result rows */
+		tupdesc = CreateTemplateTupleDesc(11, false);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "database", TEXTOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "username", TEXTOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "start_time", TIMESTAMPTZOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 4, "creation_time", TIMESTAMPTZOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 5, "proto_major", INT2OID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 6, "proto_minor", INT2OID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 7, "counter", INT4OID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 8, "backend_pid", INT4OID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 9, "connected", BOOLOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 10, "PID", INT4OID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber) 11, "backend_id", INT4OID, -1, 0);
+
+		/*
+		 * Generate attribute metadata needed later to produce tuples from raw
+		 * C strings
+		 */
+		attinmeta = TupleDescGetAttInMetadata(tupdesc);
+		funcctx->attinmeta = attinmeta;
+
+		if ((process_infos != NULL) && (nrows > 0))
+		{
+			funcctx->max_calls = nrows;
+
+			/* got results, keep track of them */
+			funcctx->user_fctx = process_infos;
+		}
+		else
+		{
+			/* fast track when no results */
+			MemoryContextSwitchTo(oldcontext);
+			SRF_RETURN_DONE(funcctx);
+		}
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	/* stuff done on every call of the function */
+	funcctx = SRF_PERCALL_SETUP();
+
+	/* initialize per-call variables */
+	call_cntr = funcctx->call_cntr;
+	max_calls = funcctx->max_calls;
+
+	process_infos = (ProcessInfo*) funcctx->user_fctx;
+	attinmeta = funcctx->attinmeta;
+
+	if (call_cntr < max_calls)	/* executed while there is more left to send */
+	{
+		char * values[11];
+		HeapTuple tuple;
+		Datum result;
+		char buffer[64];
+
+		/* TODO */
+		values[0] = pstrdup(process_infos[call_cntr].connection_info->database);
+		values[1] = pstrdup(process_infos[call_cntr].connection_info->user);
+		if (process_infos[call_cntr].start_time) {
+			strftime(buffer, 64, "%Y-%m-%d %H:%M:%S%z", localtime(&process_infos[call_cntr].start_time));
+			values[2] = pstrdup(buffer);
+		}
+		else {
+			values[2] = NULL;
+		}
+		if (process_infos[call_cntr].connection_info->create_time) {
+			strftime(buffer, 64, "%Y-%m-%d %H:%M:%S%z", localtime(&process_infos[call_cntr].connection_info->create_time));
+			values[3] = pstrdup(buffer);
+		}
+		else {
+			values[3] = NULL;
+		}
+		snprintf(buffer, 64, "%d", process_infos[call_cntr].connection_info->major);
+		values[4] = pstrdup(buffer);
+		snprintf(buffer, 64, "%d", process_infos[call_cntr].connection_info->minor);
+		values[5] = pstrdup(buffer);
+		snprintf(buffer, 64, "%d", process_infos[call_cntr].connection_info->counter);
+		values[6] = pstrdup(buffer);
+		snprintf(buffer, 64, "%d", process_infos[call_cntr].connection_info->pid);
+		values[7] = pstrdup(buffer);
+		if (process_infos[call_cntr].connection_info->connected)
+			values[8] = pstrdup("t");
+		else
+			values[8] = pstrdup("f");
+		snprintf(buffer, 64, "%d", process_infos[call_cntr].pid);
+		values[9] = pstrdup(buffer);
+		snprintf(buffer, 64, "%d", process_infos[call_cntr].connection_info->backend_id);
+		values[10] = pstrdup(buffer);
+
+		/* build the tuple */
+		tuple = BuildTupleFromCStrings(attinmeta, values);
+
+		/* make the tuple into a datum */
+		result = HeapTupleGetDatum(tuple);
+
+		SRF_RETURN_NEXT(funcctx, result);
+	}
+	else
+	{
+		/* do when there is no more left */
+		SRF_RETURN_DONE(funcctx);
+	}
+
+	free(process_infos[0].connection_info);
+	free(process_infos);
 }
 
 /**
